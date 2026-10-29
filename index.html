@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>My Live GPS Tracker</title>
+
+  <link rel="stylesheet"
+    href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+
+  <style>
+    body {
+      margin: 0;
+      font-family: Arial, sans-serif;
+      background: #f1f5f9;
+      color: #172033;
+    }
+
+    header {
+      padding: 18px;
+      background: #12304a;
+      color: white;
+    }
+
+    h1 { margin: 0 0 6px; font-size: 24px; }
+
+    main { padding: 16px; }
+
+    .panel {
+      background: white;
+      padding: 16px;
+      border-radius: 12px;
+      margin-bottom: 14px;
+      box-shadow: 0 2px 8px #0001;
+    }
+
+    .coords { line-height: 1.9; }
+    .label { color: #64748b; }
+    #map { height: 55vh; min-height: 320px; border-radius: 12px; }
+    #status { font-weight: bold; }
+    button {
+      padding: 10px 14px;
+      border: 0;
+      border-radius: 8px;
+      background: #1769aa;
+      color: white;
+      cursor: pointer;
+    }
+  </style>
+</head>
+
+<body>
+  <header>
+    <h1>Live GPS Tracker</h1>
+    <div>ESP8266 + NEO-6M + ThingSpeak</div>
+  </header>
+
+  <main>
+    <section class="panel coords">
+      <div><span class="label">Status:</span>
+        <span id="status">Connecting...</span></div>
+      <div><span class="label">Latitude:</span>
+        <span id="lat">--</span></div>
+      <div><span class="label">Longitude:</span>
+        <span id="lon">--</span></div>
+      <div><span class="label">GPS record time:</span>
+        <span id="time">--</span></div>
+      <p><button onclick="refreshGPS()">Refresh now</button></p>
+    </section>
+
+    <div id="map"></div>
+  </main>
+
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+
+  <script>
+    // Replace with your ThingSpeak Channel ID.
+    const CHANNEL_ID = "YOUR_CHANNEL_ID";
+
+    // Leave blank for a public channel.
+    // For a private channel, enter its READ API KEY here.
+    const READ_API_KEY = "";
+
+    const map = L.map("map").setView([20, 0], 2);
+
+    L.tileLayer("https://tile.openstreetmap.org/{z}/{x}/{y}.png", {
+      maxZoom: 19,
+      attribution: '&copy; OpenStreetMap contributors'
+    }).addTo(map);
+
+    let marker = null;
+    let hasCentered = false;
+
+    async function refreshGPS() {
+      const status = document.getElementById("status");
+      status.textContent = "Loading latest GPS data...";
+
+      try {
+        const params = new URLSearchParams({
+          results: "1"
+        });
+
+        if (READ_API_KEY) {
+          params.set("api_key", READ_API_KEY);
+        }
+
+        const url =
+          `https://api.thingspeak.com/channels/${CHANNEL_ID}/feeds/last.json?${params}`;
+
+        const response = await fetch(url, { cache: "no-store" });
+
+        if (!response.ok) {
+          throw new Error("ThingSpeak HTTP " + response.status);
+        }
+
+        const data = await response.json();
+
+        const lat = Number(data.field1);
+        const lon = Number(data.field2);
+
+        if (
+          data.field1 === null || data.field2 === null ||
+          data.field1 === "" || data.field2 === "" ||
+          !Number.isFinite(lat) || !Number.isFinite(lon) ||
+          lat < -90 || lat > 90 || lon < -180 || lon > 180 ||
+          (lat === 0 && lon === 0)
+        ) {
+          throw new Error("No valid GPS coordinates in Fields 1 and 2");
+        }
+
+        document.getElementById("lat").textContent = lat.toFixed(6);
+        document.getElementById("lon").textContent = lon.toFixed(6);
+        document.getElementById("time").textContent =
+          data.created_at || "Unavailable";
+
+        if (!marker) {
+          marker = L.marker([lat, lon]).addTo(map);
+          marker.bindPopup("Latest GPS location");
+        } else {
+          marker.setLatLng([lat, lon]);
+        }
+
+        marker.setPopupContent(
+          `<b>Latest GPS location</b><br>Latitude: ${lat.toFixed(6)}<br>Longitude: ${lon.toFixed(6)}`
+        );
+
+        if (!hasCentered) {
+          map.setView([lat, lon], 16);
+          hasCentered = true;
+        }
+
+        status.textContent = "GPS data received";
+      } catch (error) {
+        status.textContent = "Error: " + error.message;
+      }
+    }
+
+    refreshGPS();
+    setInterval(refreshGPS, 20000);
+  </script>
+</body>
+</html>
